@@ -1,19 +1,21 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable/index";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ROLES, type Role } from "@/lib/domain";
+import { localAuth } from "@/lib/local-store";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
     meta: [
       { title: "เข้าสู่ระบบ — NightList" },
-      { name: "description", content: "เข้าสู่ระบบหรือสมัครสมาชิก NightList สำหรับร้านและพนักงาน PR" },
+      {
+        name: "description",
+        content: "เข้าสู่ระบบหรือสมัครสมาชิก NightList สำหรับร้านและพนักงาน PR",
+      },
       { property: "og:title", content: "เข้าสู่ระบบ — NightList" },
       { property: "og:description", content: "เข้าสู่ระบบหรือสมัครสมาชิก NightList" },
     ],
@@ -28,11 +30,14 @@ function AuthPage() {
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [phone, setPhone] = useState("");
-  const [role, setRole] = useState<Role>("shop");
+  const [role, setRole] = useState<Role>("customer");
   const [ageOk, setAgeOk] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
+    localAuth.getSession().then(({ data }) => {
       if (data.session) navigate({ to: "/dashboard", replace: true });
     });
   }, [navigate]);
@@ -40,7 +45,7 @@ function AuthPage() {
   async function signIn(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await localAuth.signInWithPassword({ email, password });
     setLoading(false);
     if (error) return toast.error("เข้าสู่ระบบไม่สำเร็จ: " + error.message);
     navigate({ to: "/dashboard" });
@@ -50,11 +55,10 @@ function AuthPage() {
     e.preventDefault();
     if (!ageOk) return toast.error("กรุณายืนยันว่าคุณมีอายุ 17 ปีขึ้นไป");
     setLoading(true);
-    const { data, error } = await supabase.auth.signUp({
+    const { data, error } = await localAuth.signUp({
       email,
       password,
       options: {
-        emailRedirectTo: window.location.origin + "/dashboard",
         data: { role, display_name: displayName, phone },
       },
     });
@@ -67,13 +71,19 @@ function AuthPage() {
     }
   }
 
-  async function googleSignIn() {
-    const result = await lovable.auth.signInWithOAuth("google", {
-      redirect_uri: window.location.origin,
-    });
-    if (result.error) return toast.error("เข้าสู่ระบบด้วย Google ไม่สำเร็จ");
-    if (result.redirected) return;
+  async function resetPassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) return toast.error("รหัสผ่านใหม่ไม่ตรงกัน");
+    setLoading(true);
+    const { error } = await localAuth.resetPassword({ email: resetEmail, password: newPassword });
+    setLoading(false);
+    if (error) return toast.error("รีเซ็ตรหัสผ่านไม่สำเร็จ: " + error.message);
+    toast.success("ตั้งรหัสผ่านใหม่แล้ว");
     navigate({ to: "/dashboard" });
+  }
+
+  async function googleSignIn() {
+    toast.info("โหมด local storage ยังไม่เชื่อมต่อ Google");
   }
 
   return (
@@ -83,16 +93,23 @@ function AuthPage() {
       </Link>
       <div className="luxe-card w-full max-w-md p-6">
         <Tabs defaultValue="signin">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="signin">เข้าสู่ระบบ</TabsTrigger>
             <TabsTrigger value="signup">สมัครสมาชิก</TabsTrigger>
+            <TabsTrigger value="reset">ลืมรหัส</TabsTrigger>
           </TabsList>
 
           <TabsContent value="signin">
             <form onSubmit={signIn} className="mt-4 space-y-4">
               <div>
                 <Label htmlFor="email">อีเมล</Label>
-                <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+                <Input
+                  id="email"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
               </div>
               <div>
                 <Label htmlFor="password">รหัสผ่าน</Label>
@@ -114,8 +131,8 @@ function AuthPage() {
             <form onSubmit={signUp} className="mt-4 space-y-4">
               <div>
                 <Label>ประเภทบัญชี</Label>
-                <div className="mt-2 grid grid-cols-3 gap-2">
-                  {(["shop", "pr", "agency"] as Role[]).map((r) => (
+                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {(["customer", "shop", "pr", "agency"] as Role[]).map((r) => (
                     <button
                       type="button"
                       key={r}
@@ -133,7 +150,12 @@ function AuthPage() {
               </div>
               <div>
                 <Label htmlFor="name">ชื่อที่แสดง</Label>
-                <Input id="name" required value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
+                <Input
+                  id="name"
+                  required
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                />
               </div>
               <div>
                 <Label htmlFor="phone">เบอร์โทรศัพท์</Label>
@@ -141,7 +163,13 @@ function AuthPage() {
               </div>
               <div>
                 <Label htmlFor="email2">อีเมล</Label>
-                <Input id="email2" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+                <Input
+                  id="email2"
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
               </div>
               <div>
                 <Label htmlFor="password2">รหัสผ่าน</Label>
@@ -161,10 +189,51 @@ function AuthPage() {
                   onChange={(e) => setAgeOk(e.target.checked)}
                   className="mt-0.5"
                 />
-                ฉันมีอายุ 17 ปีขึ้นไป ยอมรับเงื่อนไขการใช้งาน และรับทราบว่าห้ามใช้แพลตฟอร์มเพื่อบริการผิดกฎหมาย
+                ฉันมีอายุ 17 ปีขึ้นไป ยอมรับเงื่อนไขการใช้งาน
+                และรับทราบว่าห้ามใช้แพลตฟอร์มเพื่อบริการผิดกฎหมาย
               </label>
               <Button type="submit" className="w-full" disabled={loading}>
                 สมัครสมาชิก
+              </Button>
+            </form>
+          </TabsContent>
+
+          <TabsContent value="reset">
+            <form onSubmit={resetPassword} className="mt-4 space-y-4">
+              <div>
+                <Label htmlFor="reset-email">อีเมล</Label>
+                <Input
+                  id="reset-email"
+                  type="email"
+                  required
+                  value={resetEmail}
+                  onChange={(e) => setResetEmail(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="new-password">รหัสผ่านใหม่</Label>
+                <Input
+                  id="new-password"
+                  type="password"
+                  required
+                  minLength={6}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
+              </div>
+              <div>
+                <Label htmlFor="confirm-password">ยืนยันรหัสผ่านใหม่</Label>
+                <Input
+                  id="confirm-password"
+                  type="password"
+                  required
+                  minLength={6}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                />
+              </div>
+              <Button type="submit" className="w-full" disabled={loading}>
+                รีเซ็ตรหัสผ่าน
               </Button>
             </form>
           </TabsContent>

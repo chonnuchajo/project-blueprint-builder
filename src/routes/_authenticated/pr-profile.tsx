@@ -2,26 +2,23 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 import { AppShell, StatusBadge } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useMyPrProfile, useSession } from "@/hooks/use-session";
-import {
-  JOB_TYPES,
-  LANGUAGES,
-  PROVINCES,
-  VERIFICATION_LABELS,
-  calcAge,
-} from "@/lib/domain";
+import { JOB_TYPES, LANGUAGES, PROVINCES, VERIFICATION_LABELS, calcAge } from "@/lib/domain";
+import { localDb } from "@/lib/local-store";
 
 export const Route = createFileRoute("/_authenticated/pr-profile")({
   head: () => ({
     meta: [
       { title: "โปรไฟล์ PR — NightList" },
-      { name: "description", content: "สร้างและแก้ไขโปรไฟล์พนักงาน PR พื้นที่รับงาน เรทราคา และประสบการณ์" },
+      {
+        name: "description",
+        content: "สร้างและแก้ไขโปรไฟล์พนักงาน PR พื้นที่รับงาน เรทราคา และประสบการณ์",
+      },
       { property: "og:title", content: "โปรไฟล์ PR — NightList" },
       { property: "og:description", content: "จัดการโปรไฟล์พนักงาน PR ของคุณ" },
     ],
@@ -71,6 +68,7 @@ function PrProfilePage() {
     experience_years: 0,
     hourly_rate: 0,
     avatar_url: "",
+    image_urls: "",
   });
   const [areas, setAreas] = useState<string[]>([]);
   const [langs, setLangs] = useState<string[]>([]);
@@ -86,6 +84,9 @@ function PrProfilePage() {
         experience_years: pr.experience_years ?? 0,
         hourly_rate: Number(pr.hourly_rate ?? 0),
         avatar_url: pr.avatar_url ?? "",
+        image_urls: (pr.image_urls?.length ? pr.image_urls : [pr.avatar_url])
+          .filter(Boolean)
+          .join("\n"),
       });
       setAreas(pr.service_areas ?? []);
       setLangs(pr.languages ?? []);
@@ -103,19 +104,23 @@ function PrProfilePage() {
     const age = calcAge(form.birth_date);
     if (age === null || age < 17) return toast.error("ต้องมีอายุ 17 ปีขึ้นไปจึงจะสร้างโปรไฟล์ได้");
     setSaving(true);
+    const imageUrls = form.image_urls
+      .split(/\r?\n/)
+      .map((url) => url.trim())
+      .filter(Boolean);
+    const { image_urls, ...fields } = form;
     const payload = {
-      ...form,
+      ...fields,
+      avatar_url: imageUrls[0] ?? form.avatar_url,
+      image_urls: imageUrls,
       birth_date: form.birth_date || null,
       service_areas: areas,
       languages: langs,
       job_types: jobs,
       user_id: user.id,
     };
-    const { error } = pr
-      ? await supabase.from("pr_profiles").update(payload).eq("id", pr.id)
-      : await supabase.from("pr_profiles").insert(payload);
+    await localDb.savePrProfile(payload);
     setSaving(false);
-    if (error) return toast.error("บันทึกไม่สำเร็จ: " + error.message);
     toast.success("บันทึกโปรไฟล์แล้ว รอแอดมินตรวจสอบ");
     queryClient.invalidateQueries({ queryKey: ["my-pr"] });
   }
@@ -159,7 +164,10 @@ function PrProfilePage() {
             </div>
             <div>
               <Label>เพศ (ไม่บังคับ)</Label>
-              <Input value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })} />
+              <Input
+                value={form.gender}
+                onChange={(e) => setForm({ ...form, gender: e.target.value })}
+              />
             </div>
             <div>
               <Label>ประสบการณ์ (ปี)</Label>
@@ -188,18 +196,38 @@ function PrProfilePage() {
               />
             </div>
             <div className="sm:col-span-2">
+              <Label>รูปภาพ PR หลายภาพ</Label>
+              <Textarea
+                placeholder="https://example.com/photo-1.jpg&#10;https://example.com/photo-2.jpg"
+                value={form.image_urls}
+                onChange={(e) => setForm({ ...form, image_urls: e.target.value })}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">ใส่ 1 URL ต่อ 1 บรรทัด</p>
+            </div>
+            <div className="sm:col-span-2">
               <Label>แนะนำตัว</Label>
-              <Textarea value={form.bio} onChange={(e) => setForm({ ...form, bio: e.target.value })} />
+              <Textarea
+                value={form.bio}
+                onChange={(e) => setForm({ ...form, bio: e.target.value })}
+              />
             </div>
           </div>
 
           <div>
             <Label>พื้นที่รับงาน</Label>
-            <Chips options={PROVINCES} selected={areas} onToggle={(v) => toggle(areas, setAreas, v)} />
+            <Chips
+              options={PROVINCES}
+              selected={areas}
+              onToggle={(v) => toggle(areas, setAreas, v)}
+            />
           </div>
           <div>
             <Label>ภาษา</Label>
-            <Chips options={LANGUAGES} selected={langs} onToggle={(v) => toggle(langs, setLangs, v)} />
+            <Chips
+              options={LANGUAGES}
+              selected={langs}
+              onToggle={(v) => toggle(langs, setLangs, v)}
+            />
           </div>
           <div>
             <Label>ประเภทงานที่รับ</Label>

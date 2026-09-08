@@ -22,3 +22,18 @@ cd <repository-name>
 npm i
 npm run dev
 ```
+
+## Super User
+
+สร้างบัญชีใช้งานที่มีสิทธิ์ครบทุกกลุ่ม (`shop`, `pr`, `agency`, `admin`) ผ่าน Supabase Admin API:
+
+```powershell
+$env:SUPABASE_URL="https://mbiekqsxqrlrtnxjlicb.supabase.co"
+$env:SUPABASE_SERVICE_ROLE_KEY="<service-role-key>"
+$env:SUPER_USER_EMAIL="admin@example.com"
+$env:SUPER_USER_PASSWORD="<strong-password>"
+$env:SUPER_USER_DISPLAY_NAME="Super Admin"
+npm run create:super-user
+```
+
+บัญชีนี้ไม่ใช่ bypass ลับใน client; script ต้องใช้ service role key ฝั่ง trusted environment เท่านั้น.

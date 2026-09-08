@@ -1,19 +1,18 @@
 import { useEffect, useState } from "react";
-import type { Session } from "@supabase/supabase-js";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { localAuth, localDb, type LocalSession } from "@/lib/local-store";
 import type { Role } from "@/lib/domain";
 
 export function useSession() {
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setSession] = useState<LocalSession | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
+    localAuth.getSession().then(({ data }) => {
       setSession(data.session);
       setLoading(false);
     });
-    const { data } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+    const { data } = localAuth.onAuthStateChange((_e, s) => setSession(s));
     return () => data.subscription.unsubscribe();
   }, []);
 
@@ -26,12 +25,7 @@ export function useMyRoles() {
     queryKey: ["my-roles", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", user!.id);
-      if (error) throw error;
-      return (data ?? []).map((r) => r.role as Role);
+      return localDb.getRoles(user!.id) as Promise<Role[]>;
     },
   });
 }
@@ -42,13 +36,7 @@ export function useMyShop() {
     queryKey: ["my-shop", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("shops")
-        .select("*")
-        .eq("user_id", user!.id)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
+      return localDb.getMyShop(user!.id);
     },
   });
 }
@@ -59,13 +47,7 @@ export function useMyPrProfile() {
     queryKey: ["my-pr", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("pr_profiles")
-        .select("*")
-        .eq("user_id", user!.id)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
+      return localDb.getMyPrProfile(user!.id);
     },
   });
 }

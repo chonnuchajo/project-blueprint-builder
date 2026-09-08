@@ -2,11 +2,17 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 import { AppShell, StatusBadge } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { useMyPrProfile, useMyRoles, useMyShop, useSession } from "@/hooks/use-session";
-import { BOOKING_LABELS, ROLES, VERIFICATION_LABELS, formatDateTime, type Role } from "@/lib/domain";
+import {
+  BOOKING_LABELS,
+  ROLES,
+  VERIFICATION_LABELS,
+  formatDateTime,
+  type Role,
+} from "@/lib/domain";
+import { localDb } from "@/lib/local-store";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
   head: () => ({
@@ -32,25 +38,26 @@ function Dashboard() {
   useEffect(() => {
     if (!user) return;
     (async () => {
-      await supabase.from("profiles").upsert(
-        {
-          id: user.id,
-          email: user.email ?? null,
-          phone: (user.user_metadata?.phone as string) ?? null,
-          display_name:
-            (user.user_metadata?.display_name as string) ??
-            (user.user_metadata?.full_name as string) ??
-            user.email,
-        },
-        { onConflict: "id" },
-      );
+      await localDb.upsertProfile({
+        id: user.id,
+        email: user.email ?? null,
+        phone: (user.user_metadata?.phone as string) ?? null,
+        display_name:
+          (user.user_metadata?.display_name as string) ??
+          (user.user_metadata?.full_name as string) ??
+          user.email,
+        status: "pending",
+      });
       const metaRole = user.user_metadata?.role as Role | undefined;
       if (metaRole && metaRole !== "admin") {
-        await supabase.from("user_roles").upsert(
-          { user_id: user.id, role: metaRole },
-          { onConflict: "user_id,role", ignoreDuplicates: true },
-        );
-        queryClient.invalidateQueries({ queryKey: ["my-roles"] });
+        await localDb.upsertRoles(user.id, [metaRole]);
+      }
+      const linked = await localDb.linkRecordsToUser(user);
+      queryClient.invalidateQueries({ queryKey: ["my-roles"] });
+      if (linked) {
+        queryClient.invalidateQueries({ queryKey: ["my-shop"] });
+        queryClient.invalidateQueries({ queryKey: ["my-pr"] });
+        queryClient.invalidateQueries({ queryKey: ["dashboard-bookings"] });
       }
     })();
   }, [user, queryClient]);
@@ -59,22 +66,15 @@ function Dashboard() {
     queryKey: ["dashboard-bookings", user?.id],
     enabled: !!user,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("bookings")
-        .select("*, shops(shop_name), pr_profiles(display_name)")
-        .order("start_datetime", { ascending: false })
-        .limit(5);
-      if (error) throw error;
-      return data ?? [];
+      return localDb.getDashboardBookings(user!.id);
     },
   });
 
   async function pickRole(role: Role) {
     if (!user) return;
     setSaving(true);
-    const { error } = await supabase.from("user_roles").insert({ user_id: user.id, role });
+    await localDb.addRole(user.id, role);
     setSaving(false);
-    if (error) return toast.error("บันทึกประเภทบัญชีไม่สำเร็จ");
     toast.success("บันทึกประเภทบัญชีแล้ว");
     queryClient.invalidateQueries({ queryKey: ["my-roles"] });
   }
@@ -86,9 +86,11 @@ function Dashboard() {
       {needsRole ? (
         <div className="luxe-card mb-6 p-6">
           <h2 className="text-lg font-semibold">เลือกประเภทบัญชีของคุณ</h2>
-          <p className="mt-1 text-sm text-muted-foreground">เลือกได้ครั้งเดียวเพื่อเปิดใช้งานเมนูที่เกี่ยวข้อง</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            เลือกได้ครั้งเดียวเพื่อเปิดใช้งานเมนูที่เกี่ยวข้อง
+          </p>
           <div className="mt-4 flex flex-wrap gap-2">
-            {(["shop", "pr", "agency"] as Role[]).map((r) => (
+            {(["customer", "shop", "pr", "agency"] as Role[]).map((r) => (
               <Button key={r} variant="secondary" disabled={saving} onClick={() => pickRole(r)}>
                 {ROLES[r]}
               </Button>
@@ -146,12 +148,17 @@ function Dashboard() {
         {bookings.data?.length ? (
           <ul className="space-y-3">
             {bookings.data.map((b) => (
-              <li key={b.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3">
+              <li
+                key={b.id}
+                className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3"
+              >
                 <div>
                   <p className="text-sm font-medium">
                     {b.shops?.shop_name} → {b.pr_profiles?.display_name}
                   </p>
-                  <p className="text-xs text-muted-foreground">{formatDateTime(b.start_datetime)}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {formatDateTime(b.start_datetime)}
+                  </p>
                 </div>
                 <StatusBadge status={b.status} label={BOOKING_LABELS[b.status] ?? b.status} />
               </li>

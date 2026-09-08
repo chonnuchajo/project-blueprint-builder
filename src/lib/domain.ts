@@ -1,4 +1,5 @@
 export const ROLES = {
+  customer: "ลูกค้า",
   shop: "ร้าน/สถานบันเทิง",
   pr: "พนักงาน PR",
   agency: "เอเจนซี่",

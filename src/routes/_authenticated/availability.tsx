@@ -2,13 +2,13 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useMyPrProfile } from "@/hooks/use-session";
 import { formatDateTime } from "@/lib/domain";
+import { localDb } from "@/lib/local-store";
 
 export const Route = createFileRoute("/_authenticated/availability")({
   head: () => ({
@@ -33,13 +33,7 @@ function AvailabilityPage() {
     queryKey: ["availability", pr?.id],
     enabled: !!pr,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("availability")
-        .select("*")
-        .eq("pr_profile_id", pr!.id)
-        .order("start_datetime");
-      if (error) throw error;
-      return data ?? [];
+      return localDb.getAvailability(pr!.id);
     },
   });
 
@@ -47,13 +41,12 @@ function AvailabilityPage() {
     e.preventDefault();
     if (!pr) return;
     if (new Date(end) <= new Date(start)) return toast.error("เวลาสิ้นสุดต้องหลังเวลาเริ่ม");
-    const { error } = await supabase.from("availability").insert({
+    await localDb.addAvailability({
       pr_profile_id: pr.id,
       start_datetime: new Date(start).toISOString(),
       end_datetime: new Date(end).toISOString(),
       status,
     });
-    if (error) return toast.error("เพิ่มไม่สำเร็จ: " + error.message);
     toast.success("เพิ่มช่วงเวลาแล้ว");
     setStart("");
     setEnd("");
@@ -61,8 +54,7 @@ function AvailabilityPage() {
   }
 
   async function remove(id: string) {
-    const { error } = await supabase.from("availability").delete().eq("id", id);
-    if (error) return toast.error("ลบไม่สำเร็จ");
+    await localDb.removeAvailability(id);
     queryClient.invalidateQueries({ queryKey: ["availability"] });
   }
 
@@ -79,11 +71,21 @@ function AvailabilityPage() {
       <form onSubmit={addSlot} className="luxe-card grid gap-4 p-6 sm:grid-cols-4">
         <div>
           <Label>เริ่ม</Label>
-          <Input type="datetime-local" required value={start} onChange={(e) => setStart(e.target.value)} />
+          <Input
+            type="datetime-local"
+            required
+            value={start}
+            onChange={(e) => setStart(e.target.value)}
+          />
         </div>
         <div>
           <Label>สิ้นสุด</Label>
-          <Input type="datetime-local" required value={end} onChange={(e) => setEnd(e.target.value)} />
+          <Input
+            type="datetime-local"
+            required
+            value={end}
+            onChange={(e) => setEnd(e.target.value)}
+          />
         </div>
         <div>
           <Label>สถานะ</Label>
@@ -108,7 +110,10 @@ function AvailabilityPage() {
         {slots.data?.length ? (
           <ul className="space-y-3">
             {slots.data.map((s) => (
-              <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3">
+              <li
+                key={s.id}
+                className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-3"
+              >
                 <div>
                   <p className="text-sm">
                     {formatDateTime(s.start_datetime)} – {formatDateTime(s.end_datetime)}

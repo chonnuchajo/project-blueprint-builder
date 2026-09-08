@@ -1,9 +1,9 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { useMyRoles, useSession } from "@/hooks/use-session";
+import { localAuth } from "@/lib/local-store";
 
 type NavItem = { to: string; label: string };
 
@@ -22,11 +22,17 @@ export function AppShell({
   const { data: roles = [] } = useMyRoles();
 
   const items: NavItem[] = [{ to: "/dashboard", label: "หน้าหลัก" }];
+  if (roles.includes("customer") || roles.includes("admin")) {
+    items.push({ to: "/customer", label: "ลูกค้า" });
+  }
   if (roles.includes("shop") || roles.includes("agency")) {
     items.push({ to: "/shop", label: "ข้อมูลร้าน" }, { to: "/search", label: "ค้นหา PR" });
   }
   if (roles.includes("pr") || roles.includes("agency")) {
-    items.push({ to: "/pr-profile", label: "โปรไฟล์ PR" }, { to: "/availability", label: "ตารางว่าง" });
+    items.push(
+      { to: "/pr-profile", label: "โปรไฟล์ PR" },
+      { to: "/availability", label: "ตารางว่าง" },
+    );
   }
   items.push({ to: "/bookings", label: "การจอง" }, { to: "/report", label: "แจ้งปัญหา" });
   if (roles.includes("admin")) items.push({ to: "/admin", label: "แอดมิน" });
@@ -34,7 +40,7 @@ export function AppShell({
   async function signOut() {
     await queryClient.cancelQueries();
     queryClient.clear();
-    await supabase.auth.signOut();
+    await localAuth.signOut();
     navigate({ to: "/auth", replace: true });
   }
 
@@ -79,12 +85,18 @@ export function AppShell({
 }
 
 export function StatusBadge({ status, label }: { status: string; label: string }) {
-  const tone =
-    ["approved", "accepted", "completed"].includes(status)
-      ? "bg-success/15 text-success border-success/30"
-      : ["rejected", "suspended", "no_show", "disputed", "cancelled_by_shop", "cancelled_by_pr"].includes(status)
-        ? "bg-destructive/15 text-destructive border-destructive/30"
-        : "bg-primary/15 text-primary border-primary/30";
+  const tone = ["approved", "accepted", "completed"].includes(status)
+    ? "bg-success/15 text-success border-success/30"
+    : [
+          "rejected",
+          "suspended",
+          "no_show",
+          "disputed",
+          "cancelled_by_shop",
+          "cancelled_by_pr",
+        ].includes(status)
+      ? "bg-destructive/15 text-destructive border-destructive/30"
+      : "bg-primary/15 text-primary border-primary/30";
   return (
     <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs ${tone}`}>
       {label}
